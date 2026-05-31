@@ -1,0 +1,30 @@
+# ── Deep Learning ─────────────────────────────
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+
+# ── Computer Vision ───────────────────────────
+opencv-python-headless==4.9.0.80
+ultralytics==8.1.0            # YOLOv8
+
+# ── Grad-CAM ──────────────────────────────────
+grad-cam==1.5.0
+
+# ── Model Hub ─────────────────────────────────
+huggingface-hub==0.22.2
+timm==0.9.16                  # XceptionNet via timm
+
+# ── Task Queue ────────────────────────────────
+celery==5.3.6
+redis==5.0.4
+
+# ── Database ──────────────────────────────────
+motor==3.4.0
+pymongo==4.7.2
+
+# ── Image Processing ──────────────────────────
+Pillow==10.3.0
+numpy==1.26.4
+
+# ── Config ────────────────────────────────────
+python-dotenv==1.0.1
