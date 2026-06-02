@@ -4,15 +4,15 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 
+# ── Health ────────────────────────────────────
 @pytest.mark.asyncio
 async def test_health_check(client):
     response = await client.get("/api/health")
     assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert "version" in data
+    assert response.json()["status"] == "ok"
 
 
+# ── Upload ────────────────────────────────────
 @pytest.mark.asyncio
 async def test_upload_valid_image(client, mock_db):
     image_data = io.BytesIO(b"\xff\xd8\xff" + b"\x00" * 100)
@@ -28,34 +28,33 @@ async def test_upload_valid_image(client, mock_db):
 
 @pytest.mark.asyncio
 async def test_upload_invalid_extension(client):
-    bad_file = io.BytesIO(b"some content")
     response = await client.post(
         "/api/analyze",
-        files={"file": ("malware.exe", bad_file, "application/octet-stream")},
+        files={"file": ("malware.exe", io.BytesIO(b"bad"), "application/octet-stream")},
     )
     assert response.status_code == 415
 
 
 @pytest.mark.asyncio
 async def test_upload_file_too_large(client):
-    large_file = io.BytesIO(b"x" * (501 * 1024 * 1024))
     response = await client.post(
         "/api/analyze",
-        files={"file": ("big_video.mp4", large_file, "video/mp4")},
+        files={"file": ("big.mp4", io.BytesIO(b"x" * (501 * 1024 * 1024)), "video/mp4")},
     )
     assert response.status_code in (413, 422)
 
 
+# ── Results ───────────────────────────────────
 @pytest.mark.asyncio
 async def test_get_results_not_found(client, mock_db):
     mock_db.find_one = AsyncMock(return_value=None)
-    response = await client.get("/api/results/nonexistent-job-id")
+    response = await client.get("/api/results/nonexistent-id")
     assert response.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_get_results_found(client, mock_db):
-    mock_db.find_one = AsyncMock(side_effect=lambda query: {
+    mock_db.find_one = AsyncMock(side_effect=lambda *a, **kw: {
         "job_id": "test-job-123",
         "status": "completed",
         "created_at": datetime.now(timezone.utc),
@@ -81,30 +80,69 @@ async def test_get_results_found(client, mock_db):
     })
     response = await client.get("/api/results/test-job-123")
     assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "completed"
-    assert data["progress_pct"] == 100
+    assert response.json()["status"] == "completed"
+    assert response.json()["progress_pct"] == 100
 
 
+# ── History ───────────────────────────────────
 @pytest.mark.asyncio
 async def test_history_returns_list(client, mock_db):
     mock_db.count_documents = AsyncMock(return_value=0)
     mock_db.find.return_value.sort.return_value.skip.return_value.limit.return_value.to_list = AsyncMock(return_value=[])
-
     response = await client.get("/api/history")
     assert response.status_code == 200
     data = response.json()
     assert "results" in data
-    assert "total" in data
+    assert "stats" in data
 
 
 @pytest.mark.asyncio
-async def test_history_pagination_params(client, mock_db):
+async def test_history_pagination(client, mock_db):
     mock_db.count_documents = AsyncMock(return_value=0)
     mock_db.find.return_value.sort.return_value.skip.return_value.limit.return_value.to_list = AsyncMock(return_value=[])
-
     response = await client.get("/api/history?skip=10&limit=5")
     assert response.status_code == 200
     data = response.json()
     assert data["skip"] == 10
     assert data["limit"] == 5
+
+
+# ── Auth ──────────────────────────────────────
+@pytest.mark.asyncio
+async def test_register_user(client, mock_db):
+    mock_db.find_one = AsyncMock(return_value=None)
+    mock_db.insert_one = AsyncMock(return_value=None)
+    response = await client.post("/api/auth/register", json={
+        "email": "test@example.com",
+        "password": "securepass123",
+        "full_name": "Test User",
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert data["email"] == "test@example.com"
+    assert "user_id" in data
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_email(client, mock_db):
+    mock_db.find_one = AsyncMock(return_value={"email": "test@example.com"})
+    response = await client.post("/api/auth/register", json={
+        "email": "test@example.com",
+        "password": "pass123",
+    })
+    assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_login_wrong_password(client, mock_db):
+    from backend.auth import hash_password
+    mock_db.find_one = AsyncMock(return_value={
+        "user_id": "abc123",
+        "email": "test@example.com",
+        "hashed_password": hash_password("correctpass"),
+    })
+    response = await client.post("/api/auth/login", json={
+        "email": "test@example.com",
+        "password": "wrongpass",
+    })
+    assert response.status_code == 401

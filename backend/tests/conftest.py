@@ -9,6 +9,8 @@ def make_mock_collection():
     mock_collection.insert_one = AsyncMock(return_value=None)
     mock_collection.find_one = AsyncMock(return_value=None)
     mock_collection.count_documents = AsyncMock(return_value=0)
+    mock_collection.update_one = AsyncMock(return_value=None)
+    mock_collection.create_index = AsyncMock(return_value=None)
 
     mock_cursor = MagicMock()
     mock_cursor.sort.return_value = mock_cursor
@@ -27,15 +29,26 @@ def _get_mock_collection(name):
     return _mock_collection
 
 
+# Patch at import time — before FastAPI registers routes
 import backend.database as _db
 _db.get_collection = _get_mock_collection
 
 
 @pytest.fixture
 def mock_db():
+    # Reset to clean state before each test
     _mock_collection.find_one = AsyncMock(return_value=None)
     _mock_collection.insert_one = AsyncMock(return_value=None)
     _mock_collection.count_documents = AsyncMock(return_value=0)
+    _mock_collection.update_one = AsyncMock(return_value=None)
+
+    mock_cursor = MagicMock()
+    mock_cursor.sort.return_value = mock_cursor
+    mock_cursor.skip.return_value = mock_cursor
+    mock_cursor.limit.return_value = mock_cursor
+    mock_cursor.to_list = AsyncMock(return_value=[])
+    _mock_collection.find.return_value = mock_cursor
+
     return _mock_collection
 
 
