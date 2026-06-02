@@ -7,8 +7,17 @@ client: AsyncIOMotorClient = None
 async def connect_db():
     """Create MongoDB connection on app startup."""
     global client
-    client = AsyncIOMotorClient(settings.mongo_uri)
-    print(f"[DB] Connected to MongoDB at {settings.mongo_uri}")
+    try:
+        client = AsyncIOMotorClient(
+            settings.mongo_uri,
+            serverSelectionTimeoutMS=5000,
+        )
+        # Verify connection
+        await client.admin.command("ping")
+        print(f"[DB] Connected to MongoDB at {settings.mongo_uri}")
+    except Exception as e:
+        print(f"[DB] WARNING: Could not connect to MongoDB: {e}")
+        print("[DB] App will start but database operations will fail.")
 
 
 async def close_db():
@@ -21,6 +30,8 @@ async def close_db():
 
 def get_database():
     """Return the database instance."""
+    if client is None:
+        raise RuntimeError("Database not connected. Call connect_db() first.")
     return client[settings.mongo_db_name]
 
 
