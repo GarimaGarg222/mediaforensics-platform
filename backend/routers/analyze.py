@@ -16,17 +16,13 @@ VIDEO_EXTENSIONS = {"mp4", "mov", "avi", "mkv"}
 
 
 def validate_file(filename: str) -> str:
-    """Validate extension and return it. Raises 415 if not allowed."""
     if "." not in filename:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="File has no extension.",
-        )
+        raise HTTPException(status_code=415, detail="File has no extension.")
     ext = filename.rsplit(".", 1)[-1].lower()
     if ext not in settings.allowed_extensions_list:
         raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"'.{ext}' is not supported. Allowed: {settings.allowed_extensions}",
+            status_code=415,
+            detail=f"'.{ext}' not supported. Allowed: {settings.allowed_extensions}",
         )
     return ext
 
@@ -41,38 +37,31 @@ async def upload_and_analyze(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    """
-    Upload a media file and queue it for analysis.
-    Authentication optional — jobs are tracked by job_id.
-    """
     ext = validate_file(file.filename)
 
-    # Read and size-check
     content = await file.read()
     file_size = len(content)
 
     if file_size > settings.max_file_size_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Max size is {settings.max_file_size_mb}MB.",
+            status_code=413,
+            detail=f"File too large. Max {settings.max_file_size_mb}MB.",
         )
 
-    # Save to disk
-    job_id = str(uuid.uuid4())
+    # Save file
+    job_id    = str(uuid.uuid4())
     save_path = os.path.join(settings.upload_dir, f"{job_id}.{ext}")
     os.makedirs(settings.upload_dir, exist_ok=True)
 
     with open(save_path, "wb") as f:
         f.write(content)
 
-    # Build metadata
     media = MediaMetadata(
         filename=file.filename,
         file_size_bytes=file_size,
         mime_type=get_mime_type(file.filename, ext),
     )
 
-    # Create job in MongoDB
     job = AnalysisJob(
         job_id=job_id,
         user_id=current_user.get("sub") if current_user else None,
@@ -85,9 +74,14 @@ async def upload_and_analyze(
     collection = get_collection("jobs")
     await collection.insert_one(job.model_dump())
 
-    # Dispatch Celery task (Day 3)
-    # from ml.worker import run_analysis
-    # run_analysis.delay(job_id, save_path)
+    # ── Dispatch Celery ML task ────────────────
+    try:
+        from ml.worker import run_analysis
+        run_analysis.delay(job_id, save_path)
+        print(f"[API] Dispatched ML task for job {job_id}")
+    except Exception as e:
+        print(f"[API] Warning: Could not dispatch Celery task: {e}")
+        print("[API] Job saved — start ML worker to process it")
 
     return AnalysisJobResponse(
         job_id=job_id,
