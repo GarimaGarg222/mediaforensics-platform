@@ -1,3 +1,6 @@
+import { useState } from "react"
+import { api } from "../api/client"
+
 const SIGNAL_LABELS = {
   face_swap:              "Face Swap",
   gan_artifacts:          "GAN Artifacts",
@@ -8,7 +11,7 @@ const SIGNAL_LABELS = {
 
 function VerdictBadge({ verdict }) {
   const map = {
-    fake:       { cls: "verdict-fake",       icon: "⚠", label: "Deepfake Detected" },
+    fake:       { cls: "verdict-fake",       icon: "⚠", label: "Deepfake Detected"  },
     suspicious: { cls: "verdict-suspicious", icon: "◉", label: "Suspicious Content" },
     authentic:  { cls: "verdict-authentic",  icon: "✓", label: "Authentic Media"    },
   }
@@ -36,16 +39,42 @@ function SignalBar({ label, value }) {
 }
 
 export default function ResultView({ result, onReset }) {
-  const { result: r, media } = result
-  const scoreColor = r.verdict === "fake" ? "text-red-400" : r.verdict === "suspicious" ? "text-amber-400" : "text-brand-400"
+  const [downloading, setDownloading] = useState(false)
+  const { result: r, media, job_id } = result
+
+  const scoreColor = r.verdict === "fake"
+    ? "text-red-400"
+    : r.verdict === "suspicious"
+    ? "text-amber-400"
+    : "text-brand-400"
+
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const res = await api.downloadReport(job_id)
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a   = document.createElement("a")
+      a.href    = url
+      a.download = `forensic-report-${job_id?.slice(0,8)}.pdf`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      alert("Report not ready yet. Try again in a few seconds.")
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div className="space-y-4 animate-fade-up">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-sm text-surface-400 font-mono">{media?.filename}</span>
+        <span className="text-sm text-surface-400 font-mono truncate max-w-xs">{media?.filename}</span>
         <div className="flex gap-2">
           <button onClick={onReset} className="btn-ghost">↑ New Analysis</button>
+          <button onClick={handleDownload} disabled={downloading} className="btn-primary">
+            {downloading ? "⏳ Generating..." : "⬇ PDF Report"}
+          </button>
         </div>
       </div>
 
@@ -59,7 +88,6 @@ export default function ResultView({ result, onReset }) {
           </div>
           <div className="text-xs text-surface-500 mb-4">Confidence: {Math.round(r.confidence * 100)}%</div>
           <VerdictBadge verdict={r.verdict} />
-
           <div className="mt-6 space-y-3">
             <div className="text-xs text-surface-500 uppercase tracking-widest mb-2">Detection Signals</div>
             {Object.entries(r.signals).map(([k, v]) => (
